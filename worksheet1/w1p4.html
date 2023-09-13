@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>W1P3</title>
+    <script type="text/javascript" src="w1p4.js"></script>
+    <script id="wgsl" type="x-shader">
+        struct VSOut {
+            @builtin(position) position: vec4f,
+            @location(0) coords : vec2f,
+        };
+        struct Ray {
+            origin: vec3f,
+            direction: vec3f,
+            tmin: f32,
+            tmax: f32
+        };
+        struct HitInfo {
+            has_hit: bool,
+            dist: f32,
+            position: vec3f,
+            normal: vec3f,
+            color: vec3f,
+        };
+        struct Light {
+            L_i: vec3f,
+            w_i: vec3f,
+            dist: f32
+        };
+
+        const camera_position = vec3f(2.0, 1.5, 2.0);
+        const target_point = vec3f(0.0, 0.5, 0.0);
+        const up = vec3f(0.0, 1.0, 0.0); 
+        
+        @vertex
+        fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
+        {
+            const pos = array<vec2f, 4>(vec2f(-1.0, 1.0), vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(1.0, -1.0));
+            var vsOut: VSOut;
+            vsOut.position = vec4f(pos[VertexIndex], 0.0, 1.0);
+            vsOut.coords = pos[VertexIndex];
+            return vsOut;
+        }
+
+        fn get_camera_ray(uv: vec2f, canvas_width: f32, canvas_height: f32) -> Ray 
+        {
+            // Calculate ray direction
+            let view_direction: vec3f = normalize(target_point - camera_position);
+            let right: vec3f = normalize(cross(view_direction, up));
+            let up_vector: vec3f = cross(right, view_direction);
+            let aspect_ratio: f32 = canvas_width / canvas_height;
+            const cam_const = 1.0;
+        
+            // Calculate ray direction based on UV coordinates
+            let aspect_corrected_uv: vec2f = uv;
+            let ray_direction: vec3f = normalize(
+                aspect_corrected_uv.x * right * aspect_ratio +
+                aspect_corrected_uv.y * up_vector +
+                cam_const * view_direction
+            );
+        
+            // Create a Ray struct instance
+            let ray = Ray(camera_position, ray_direction, 0.0, 1.0);
+            return ray;
+        }
+
+        fn intersect_plane(ray: Ray, plane_position: vec3f, plane_normal: vec3f, hit: ptr<function, HitInfo>) -> bool {
+            let denom = dot(plane_normal, ray.direction);
+            let t = dot(plane_position - ray.origin, plane_normal) / denom;
+            if t > 0.0 {
+                if t < (*hit).dist {
+                    (*hit).has_hit = true;
+                    (*hit).dist = t;
+                    (*hit).position = ray.origin + t * ray.direction;
+                    (*hit).normal = plane_normal;
+                    (*hit).color = vec3f(0.1, 0.7, 0.0); // Assign the plane's color
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        fn intersect_sphere(ray: Ray, sphere_center: vec3f, sphere_radius: f32, hit: ptr<function, HitInfo>) -> bool {
+            let oc = ray.origin - sphere_center;
+            let a = dot(ray.direction, ray.direction);
+            let b = dot(oc, ray.direction);
+            let c = dot(oc, oc) - sphere_radius * sphere_radius;
+            let discriminant = b * b - a * c;
+            if discriminant > 0.0 {
+                let t = (-b - sqrt(discriminant)) / a;
+                if t > 0.0 {
+                    if t < (*hit).dist {
+                        (*hit).has_hit = true;
+                        (*hit).dist = t;
+                        (*hit).position = ray.origin + t * ray.direction;
+                        (*hit).normal = normalize((*hit).position - sphere_center);
+                        (*hit).color = vec3f(0.0, 0.0, 0.0); // Assign the sphere's color
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        fn intersect_triangle(r: Ray, hit: ptr<function, HitInfo>, v: array<vec3f, 3>) -> bool {
+            let edge1 = v[1] - v[0];
+            let edge2 = v[2] - v[0];
+            let h = cross(r.direction, edge2);
+            let a = dot(edge1, h);
+            if a > -1e-6 && a < 1e-6 {
+                return false; // r is parallel to the triangle.
+            }
+            let f = 1.0 / a;
+            let s = r.origin - v[0];
+            let u = f * dot(s, h);
+            if u < 0.0 || u > 1.0 {
+                return false;
+            }
+            let q = cross(s, edge1);
+            let c_v  = f * dot(r.direction, q);
+            if c_v  < 0.0 || u + c_v  > 1.0 {
+                return false;
+            }
+            let t = f * dot(edge2, q);
+            if t > 0.0 && t < (*hit).dist {
+                (*hit).has_hit = true;
+                (*hit).dist = t;
+                (*hit).position = r.origin + t * r.direction;
+                (*hit).normal = normalize(cross(edge1, edge2));
+                (*hit).color = vec3f(0.4, 0.3, 0.2); // Assign the triangle's color
+                return true;
+            }
+            return false;
+        }
+        
+        fn intersect_scene(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool {
+            // Define scene data
+            const plane_position = vec3f(0.0, 0.0, 0.0);
+            const plane_normal = vec3f(0.0, 1.0, 0.0);
+            const sphere_center = vec3f(0.0, 0.5, 0.0);
+            const sphere_radius = 0.3;
+            const triangle_v0 = vec3f(-0.2, 0.1, 0.9);
+            const triangle_v1 = vec3f(0.2, 0.1, 0.9);
+            const triangle_v2 = vec3f(-0.2, 0.1, -0.1);
+            const triangle_v = array<vec3f, 3>(triangle_v0, triangle_v1, triangle_v2);
+
+            (*hit).has_hit = false;
+            (*hit).dist = 1e20;
+            let ray: Ray = (*r);
+
+            // Call intersection functions for each object
+            let hit_plane = intersect_plane(ray, plane_position, plane_normal, hit);
+            let hit_sphere = intersect_sphere(ray, sphere_center, sphere_radius, hit);
+            let hit_triangle = intersect_triangle(ray, hit, triangle_v);
+
+            // Return true if any intersection occurred
+            return (*hit).has_hit;
+        }
+
+        fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
+        {
+            return (*hit).color;
+        }
+
+        @fragment
+        fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
+        {
+            const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
+            const max_depth = 10;
+            let uv = vec2f(coords.x*1.0*0.5f, coords.y*0.5f);
+            var r = get_camera_ray(uv, 512, 512);
+            var result = vec3f(0.0);
+            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0));
+
+            for (var i = 0; i < max_depth; i++) {
+                if (intersect_scene(&r, &hit)) { result += shade(&r, &hit); }
+                else { result += bgcolor.rgb; break; }
+                if (hit.has_hit) { break; }
+            }
+            return vec4f(pow(result, vec3f(1.0)), bgcolor.a);
+        }
+    </script>
+</head>
+<body>
+    <canvas id="webgpu-canvas" width="512" height="512"></canvas>
+</body>
+</html>

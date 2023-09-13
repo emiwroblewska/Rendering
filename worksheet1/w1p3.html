@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>W1P3</title>
+    <script type="text/javascript" src="w1p3.js"></script>
+    <script id="wgsl" type="x-shader">
+        struct VSOut {
+            @builtin(position) position: vec4f,
+            @location(0) coords : vec2f,
+        };
+        struct Ray {
+            origin: vec3f,
+            direction: vec3f,
+            tmin: f32,
+            tmax: f32
+        };
+        const camera_position = vec3f(2.0, 1.5, 2.0);
+        const target_point = vec3f(0.0, 0.5, 0.0); 
+        const up = vec3f(0.0, 1.0, 0.0); 
+        
+        @vertex
+        fn main_vs(@builtin(vertex_index) VertexIndex : u32) -> VSOut
+        {
+            const pos = array<vec2f, 4>(vec2f(-1.0, 1.0), vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(1.0, -1.0));
+            var vsOut: VSOut;
+            vsOut.position = vec4f(pos[VertexIndex], 0.0, 1.0);
+            vsOut.coords = pos[VertexIndex];
+            return vsOut;
+        }
+        
+        fn get_camera_ray(uv: vec2f, canvas_width: f32, canvas_height: f32) -> Ray 
+        {
+            // Calculate ray direction
+            let view_direction: vec3f = normalize(target_point - camera_position);
+            let right: vec3f = normalize(cross(view_direction, up));
+            let up_vector: vec3f = cross(right, view_direction);
+            let aspect_ratio: f32 = canvas_width / canvas_height;
+            const cam_const = 1.0;
+        
+            // Calculate ray direction based on UV coordinates
+            let aspect_corrected_uv: vec2f = uv;
+            let ray_direction: vec3f = normalize(
+                aspect_corrected_uv.x * right * aspect_ratio +
+                aspect_corrected_uv.y * up_vector +
+                cam_const * view_direction
+            );
+        
+            // Create a Ray struct instance
+            let ray = Ray(camera_position, ray_direction, 0.0, 1.0);
+            return ray;
+        }
+
+        @fragment
+        fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
+        {
+            let uv = coords*0.5;
+            var r = get_camera_ray(uv, 512, 512);
+            return vec4f(r.direction*0.5 + 0.5, 1.0);
+        }
+    </script>
+</head>
+<body>
+    <canvas id="webgpu-canvas" width="512" height="512"></canvas>
+</body>
+</html>
