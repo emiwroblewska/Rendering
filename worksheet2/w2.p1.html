@@ -20,6 +20,7 @@
             position: vec3f,
             normal: vec3f,
             color: vec3f,
+            shader: u32, // 1 - plane; 2 - sphere; 3 - triangle
         };
         struct Light {
             l_i: vec3f,
@@ -78,6 +79,7 @@
                     (*hit).position = ray.origin + t * ray.direction;
                     (*hit).normal = plane_normal;
                     (*hit).color = vec3f(0.1, 0.7, 0.0);
+                    (*hit).shader = 1;
                     return true;
                 }
             }
@@ -99,6 +101,7 @@
                         (*hit).position = ray.origin + t * ray.direction;
                         (*hit).normal = normalize((*hit).position - sphere_center);
                         (*hit).color = vec3f(0.0, 0.0, 0.0); // sphere's color
+                        (*hit).shader = 2;
                         return true;
                     }
                 }
@@ -132,6 +135,7 @@
                 (*hit).position = r.origin + t * r.direction;
                 (*hit).normal = normalize(cross(edge1, edge2));
                 (*hit).color = vec3f(0.4, 0.3, 0.2); // triangle's color
+                (*hit).shader = 3;
                 return true;
             }
             return false;
@@ -163,15 +167,29 @@
         // =================== SHADER FUNCTIONS ===================
         fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
         {
-            return vec3f(0.0, 0.0, 0.0);
+            const ambient_ratio = 0.1;
+            const diffuse_ratio = 0.9;
+
+            let light = sample_point_light((*hit).position);
+            let l_amb = ambient_ratio * (*hit).color;
+            let l_dif = diffuse_ratio * (*hit).color;
+            let l_rd = (l_dif / math_pi) * light.l_i * dot((*hit).normal, light.w_i);
+
+            var l_final = light.l_i + l_rd + l_amb;
+            var shadow_ray = Ray(vec3f(0.0, 1.0, 0.0), light.w_i, 10e-4, light.dist - 0.00001);
+            let has_shadows = intersect_scene(&shadow_ray, hit);
+            if has_shadows {
+                l_final = light.l_i + l_amb;
+            }
+            return l_final;
         }
 
-        fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
+        fn mirror(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
         {
             return vec3f(0.0, 0.0, 0.0);
         }
 
-        fn mirror(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
+        fn phong(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
         {
             return vec3f(0.0, 0.0, 0.0);
         }
@@ -185,14 +203,17 @@
             let distance_squared = pow(length(light_position - pos), 2);
             let l_i = vec3f(light_intensity / distance_squared);
 
-            return Light(l_i, light_direction, pow(distance_squared, 0.5));
+            return Light(l_i, light_direction, sqrt(distance_squared));
         }
 
         fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
         {
-            let light = sample_point_light((*hit).position);
-            let l_rd = ((*hit).color / math_pi) * light.l_i * dot((*hit).normal, light.w_i);
-            return l_rd;
+            switch (*hit).shader {
+                case 1 { return lambertian(r, hit); }
+                // case 2 { return phong(r, hit); }
+                // case 3 { return mirror(r, hit); }
+                case default { return (*hit).color; }
+            } 
         }
 
         @fragment
@@ -203,7 +224,7 @@
             let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
             var r = get_camera_ray(uv, 512, 512);
             var result = vec3f(0.0);
-            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0));
+            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0);
 
             for (var i = 0; i < max_depth; i++) {
                 if (intersect_scene(&r, &hit)) { result += shade(&r, &hit); }
