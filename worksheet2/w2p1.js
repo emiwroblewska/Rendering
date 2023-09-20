@@ -43,7 +43,7 @@ async function main() {
     });
 
     const uniformBuffer = device.createBuffer({
-        size: 8, // number of bytes
+        size: 16, // number of bytes
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const bindGroup = device.createBindGroup({
@@ -56,7 +56,9 @@ async function main() {
 
     const aspect = canvas.width / canvas.height;
     var cam_const = 1.0;
-    var uniforms = new Float32Array([aspect, cam_const]);
+    var glass = document.getElementById("glass").value;
+    var matte = document.getElementById("matte").value;
+    var uniforms = new Float32Array([aspect, cam_const, glass, matte]);
 
     // Scroll event handler
     addEventListener("wheel", (event) => {
@@ -70,6 +72,20 @@ async function main() {
         render(device, context, pipeline, bindGroup);
     }
     tick();
+
+    addEventListener("change", () => {
+        glass = document.getElementById("glass").value;
+        matte = document.getElementById("matte").value;
+        requestAnimationFrame(change);
+    });
+
+    function change() {
+        uniforms[2] = glass;
+        uniforms[3] = matte;
+        device.queue.writeBuffer(uniformBuffer, 0, uniforms);
+        render(device, context, pipeline, bindGroup);
+    }
+    change();
     
     async function render(device, context, pipeline, bindGroup) {
         const encoder = device.createCommandEncoder();
