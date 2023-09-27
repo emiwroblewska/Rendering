@@ -181,7 +181,7 @@ async function main() {
         uniforms[7] = Number(use_texture);
         uniforms[8] = Number(texture_scaling);
         uniforms[9] = Number(subdivs);
-        compute_jitters(jitter, 1, subdivs);
+        compute_jitters(jitter, 1/canvas.height, subdivs);
         device.queue.writeBuffer(jitterBuffer, 0, jitter);
         device.queue.writeBuffer(uniformBuffer, 0, uniforms);
         render(device, context, pipeline, bindGroupBuffers, bindGroup);
