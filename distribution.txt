@@ -1,0 +1,22 @@
+Worksheet 1:
+- (1) Canvas black (Emi/Bartek 50/50)
+- (2) Shader setup, blue rectangle (Emi/Bartek 50/50)
+- (3) Ray struct, Gradient rectangle (Emi/Bartek 50/50)
+- (4) Intersections (Emi/Bartek 50/50)
+- (5) Uniforms (Bartek)
+- (6) Point light (Emi)
+
+Worksheet 2:
+- (1) Lambertian and shadows (Emi)
+- (2) Mirror (Emi) HTML selection (Bartek)
+- (3) Refraction (Bartek)
+- (4) Phong (Emi)
+- (5) Glossy (Bartek)
+
+Worksheet 3:
+- (1) loading the texture image (Emi)
+- (2) computing texture coordinates for the object to which the texture should be mapped (Emi)
+- (3) looking up a colour in the texture image for a given set of texture coordinates (Bartek) 
+- (4) using the texture colour in a shader (Bartek)
+
+Worksheet 4:
