@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>W1P3</title>
-    <script type="text/javascript" src="w2p2.js"></script>
+    <script type="text/javascript" src="w3p1.js"></script>
     <script id="wgsl" type="x-shader">
         struct VSOut {
             @builtin(position) position: vec4f,
@@ -24,6 +24,8 @@
             ior1_over_ior2: f32,
             specular: f32,
             shininess: f32,
+            texcoords: vec2f,
+            use_texture: bool,
         };
         struct Light {
             l_i: vec3f,
@@ -38,9 +40,21 @@
             light_x: f32,
             light_y: f32,
             light_z: f32,
+            use_texture: f32,
+            texture_scaling: f32,
+            subdivs: f32,
         };
         @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+        @group(0) @binding(1) var<storage> jitter: array<vec2f>;
+        @group(1) @binding(0) var my_sampler: sampler;
+        @group(1) @binding(1) var my_texture: texture_2d<f32>;
 
+        struct Onb {
+            tangent: vec3f,
+            binormal: vec3f,
+            normal: vec3f,
+        };
+        const plane_onb = Onb(vec3f(-1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), vec3f(0.0, 1.0, 0.0));
         const camera_position = vec3f(2.0, 1.5, 2.0);
         const target_point = vec3f(0.0, 0.5, 0.0);
         const up = vec3f(0.0, 1.0, 0.0); 
@@ -77,6 +91,7 @@
             return ray;
         }
 
+        // ============================= INTERSECTIONS =================================
         fn intersect_plane(ray: Ray, plane_position: vec3f, plane_normal: vec3f, hit: ptr<function, HitInfo>) -> bool {
             let denom = dot(plane_normal, ray.direction);
             let t = dot(plane_position - ray.origin, plane_normal) / denom;
@@ -91,6 +106,7 @@
                     (*hit).ior1_over_ior2 = 1.0;
                     (*hit).specular = 0.0;
                     (*hit).shininess = 0.0;
+                    (*hit).use_texture = bool(uniforms.use_texture);
                     return true;
                 }
             }
@@ -117,6 +133,7 @@
                     (*hit).shader = u32(uniforms.glass);
                     (*hit).specular = 0.1;
                     (*hit).shininess = 42.0;
+                    (*hit).use_texture = false;
                     let is_inv = dot(ray.direction, normalize((*hit).position - sphere_center)) > 0;
                     if (is_inv) {
                         (*hit).normal = -normalize((*hit).position - sphere_center);
@@ -135,6 +152,7 @@
                     (*hit).shader = u32(uniforms.glass);
                     (*hit).specular = 0.1;
                     (*hit).shininess = 42.0;
+                    (*hit).use_texture = false;
                     let is_inv = dot(ray.direction, normalize((*hit).position - sphere_center)) > 0;
                     if (is_inv) {
                         (*hit).normal = -normalize((*hit).position - sphere_center);
@@ -179,6 +197,7 @@
                 (*hit).ior1_over_ior2 = 1.0;
                 (*hit).specular = 0.0;
                 (*hit).shininess = 0.0;
+                (*hit).use_texture = false;
                 return true;
             }
             return false;
@@ -207,7 +226,7 @@
             return (*hit).has_hit;
         }
 
-        // =================== SHADER FUNCTIONS ===================
+        // =========================== SHADER FUNCTIONS ============================
         fn lambertian(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
         {
             let light = sample_point_light((*hit).position);
@@ -254,48 +273,36 @@
 
         fn phong(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
         {
-            let w_i = normalize((*ray).origin - (*hit).position);
+            let light = sample_point_light((*hit).position);
+            let w_i = light.w_i;
             let n_vec = normalize((*hit).normal);
             let w_r = 2 * (dot(w_i, n_vec)) * n_vec - w_i;
-            let w_o = normalize((*ray).direction);
+            let w_o = normalize(-(*ray).direction);
 
-            let ro_diffuse = 0.9;
-            let bracket = (ro_diffuse / math_pi) + (*hit).specular * (((*hit).shininess + 2) / math_pi) * pow(dot(w_o, w_r), 2);
-            let l_r = vec3f(bracket * dot(w_i, n_vec));
+            let ro_diffuse = 0.9 * (*hit).color;
+            let bracket = (ro_diffuse / math_pi) + (*hit).specular * (((*hit).shininess + 2) / (2 *math_pi)) 
+                        * pow(max(dot(w_o, w_r), 0.0), (*hit).shininess);
+            let l_r = vec3f(bracket * light.l_i * max(dot(w_i, n_vec), 0.0));
 
-            (*ray).direction = w_r;
-            (*ray).origin = (*hit).position;
-            (*hit).has_hit = false;
-            return l_r;
+            let ambient = 0.1 * (*hit).color;
+            var shadow_ray = Ray((*hit).position, light.w_i, 10e-4, light.dist - 10e-4);
+            var shadow_hit: HitInfo = (*hit); 
+            if (intersect_scene(&shadow_ray, &shadow_hit)) {
+                return ambient;
+            }
+            return vec3f(l_r);
         }
 
         fn glossy(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
         {
-            let light = sample_point_light((*hit).position);
-            let w_i = normalize(((*ray).origin - (*hit).position));
-            let n_vec = normalize((*hit).normal);
-            let cos_theta = 1 - pow((*hit).ior1_over_ior2, 2) * (1 - pow(dot(w_i, n_vec), 2));
-            if (cos_theta < 0) { 
-                return mirror(ray, hit); //mirror
-            }
-            let w_r = 2 * (dot(w_i, n_vec)) * n_vec - w_i;
-            let w_o = normalize((*ray).direction);
-            let refracted_direction = (*hit).ior1_over_ior2 * (dot(w_i, n_vec) * n_vec - w_i) - n_vec*(sqrt(cos_theta));
-            let ro_diffuse = 0.9;
-            let bracket = (ro_diffuse / math_pi) + (*hit).specular * (((*hit).shininess + 2) / (2 * math_pi)) * pow(dot(w_o, w_r), 2);
-            let l_r = vec3f(bracket * dot(w_i, n_vec));
-
-            (*ray).direction = refracted_direction;
-            (*ray).origin = (*hit).position;
-            (*hit).has_hit = false;
-
-            return l_r;
+            refractive(ray, hit);
+            return phong(ray, hit);
         }
 
-        // ========================= POINT LIGHT ==========================
+        // =========================== POINT LIGHT =============================
         fn sample_point_light(pos: vec3f) -> Light
         {
-            const light_position = vec3f(0.0, 1.0, 0.0);
+            let light_position = vec3f(uniforms.light_x, uniforms.light_y, uniforms.light_z);
             const light_intensity = math_pi;
 
             let light_direction = normalize(light_position - pos);
@@ -323,15 +330,36 @@
             const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
             const max_depth = 10;
             let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
-            var r = get_camera_ray(uv, 512, 512);
+            //var r = get_camera_ray(uv, 512, 512);
             var result = vec3f(0.0);
-            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0.0, 0.0, 0.0);
+            var textured = vec3f(0.0);
+            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0.0, 0.0, 0.0, vec2f(0.0), false);
 
-            for (var i = 0; i < max_depth; i++) {
-                if (intersect_scene(&r, &hit)) { result += shade(&r, &hit); }
-                else { result += bgcolor.rgb; break; }
-                if (hit.has_hit) { break; }
+            for (var i = 0; i < i32(uniforms.subdivs); i++) {
+                for (var j = 0; j < i32(uniforms.subdivs); j++) {
+                    let idx = (i * i32(uniforms.subdivs) + j) * 2;
+                    let jitter_vec = jitter[idx];
+                    let subpixel_uv = jitter_vec + uv;
+
+                    // Cast ray through sub-pixel with modified coordinates
+                    var r = get_camera_ray(subpixel_uv, 512, 512);
+
+                    for (var k = 0; k < max_depth; k++) {
+                        if(intersect_scene(&r, &hit)) {
+                            if(hit.use_texture) { textured += shade(&r, &hit); }
+                            result += shade(&r, &hit);
+                        }
+                        else { result += bgcolor.rgb; break; }
+                        if (hit.has_hit) { break; }
+                    }
+                    let texture = textureSample(my_texture, my_sampler, uv);
+                    textured[0] *= texture[u32(hit.texcoords[0])];
+                    textured[1] *= texture[u32(hit.texcoords[1])];
+                    textured *= 1.5; // gamma correction;
+                    result += textured;
+                }
             }
+            result /= f32(uniforms.subdivs * uniforms.subdivs);
             return vec4f(pow(result, vec3f(1.0)), bgcolor.a);
         }
     </script>
@@ -341,36 +369,65 @@
         <canvas id="webgpu-canvas" width="512" height="512">
             Please use a browser that supports HTML5 canvas.
         </canvas>
-        <div style="display: flex; flex-direction: column; justify-content: space-between;">
-            <div></div>
+        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center;">
+            <div style="align-self: center">Lab 2 settings</div>
             <div style="display: flex; flex-direction: column; gap: 10px">
-            <div>
-                <input type="range" id="light_x" name="light_x" min="-3" max="3" value="0" step="0.1" />
-                <label for="light_x">Light X</label>
+                <div>
+                    <input type="range" id="light_x" name="light_x" min="-3" max="3" value="0" step="0.1" />
+                    <label for="light_x">Light X</label>
+                </div>
+                <div>
+                    <input type="range" id="light_y" name="light_y" min="-3" max="3" value="1" step="0.1" />
+                    <label for="light_y">Light Y</label>
+                </div>
+                <div>
+                    <input type="range" id="light_z" name="light_z" min="-3" max="3" value="0" step="0.1" />
+                    <label for="light_z">Light Z</label>
+                </div>
             </div>
-            <div>
-                <input type="range" id="light_y" name="light_y" min="-3" max="3" value="1" step="0.1" />
-                <label for="light_y">Light Y</label>
-            </div>
-            <div>
-                <input type="range" id="light_z" name="light_z" min="-3" max="3" value="0" step="0.1" />
-                <label for="light_z">Light Z</label>
+            <div style="align-self: end">
+                <select id="glass">
+                    <option value=0>Base color</option>
+                    <option value=1>Lambertian</option>
+                    <option value=2>Phong</option>
+                    <option value=3>Mirror</option>
+                    <option value=4>Refractive</option>
+                    <option value=5>Glossy</option>
+                </select>
+                <select id="matte">        
+                    <option value=1>Lambertian</option>
+                    <option value=0>Base color</option>
+                </select>
             </div>
         </div>
-        <div style="align-self: end">
-            <select id="glass">
-                <option value=0>Base color</option>
-                <option value=1>Lambertian</option>
-                <option value=2>Phong</option>
-                <option value=3>Mirror</option>
-                <option value=4>Refractive</option>
-                <option value=5>Glossy</option>
-            </select>
-            <select id="matte">
-                <option value=0>Base color</option>
-                <option value=1>Lambertian</option>
-            </select>
+        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center;">
+            <div style="align-self: center">Lab 3 settings</div>
+            <div>
+                <div>
+                    <input type="checkbox" id="textures" name="textures" checked />
+                    <label for="textures">Use textures</label>
+                </div>
+                <div>
+                    <input type="range" id="texture_scaling" name="texture_scaling" min="0" max="1" value="0.2" step="0.01" />
+                    <label for="texture_scaling">Texture scaling</label>
+                </div>
+            </div>
+            <div>
+                <input type="number" id="subdivs" name="subdivs" min="1" max="10" value="1" />
+                <label for="pixel_size">Subdivisions</label>
+            </div>
+            <div>
+                <select id="address">
+                    <option value="repeat">repeat</option>
+                    <option value="clamp-to-edge">clamp-to-edge</option>
+                </select>
+                <select id="filter">
+                    <option value="linear">linear</option>
+                    <option value="nearest">nearest</option>
+                </select>
+            </div>
         </div>
-    </div>
+
+    </div>  
 </body>
 </html>
