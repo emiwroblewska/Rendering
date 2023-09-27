@@ -12,16 +12,6 @@ async function main() {
         format: canvasFormat,
     });
 
-    // Create a render pass in a command buffer and submit it
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-    colorAttachments: [{
-            view: context.getCurrentTexture().createView(),
-            loadOp: "clear",
-            storeOp: "store",
-        }]
-    });
-
     const wgsl = device.createShaderModule({
         code: document.getElementById("wgsl").text
     });
