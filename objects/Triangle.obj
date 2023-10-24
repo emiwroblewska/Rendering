@@ -1,0 +1,8 @@
+mtllib Triangle.mtl
+
+g Triangle
+v -0.2 0.1 0.9
+v 0.2 0.1 0.9
+v -0.2 0.1 -0.1
+usemtl brown
+f 1 2 3
