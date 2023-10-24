@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-  <head>
+<head>
     <title>W5P1</title>
     <script type="text/javascript" src="w5p1.js"></script>
     <script type="text/javascript" src="OBJParser.js"></script>
@@ -73,7 +73,7 @@
             return vsOut;
         }
 
-       fn get_camera_ray(uv: vec2f, canvas_width: f32, canvas_height: f32) -> Ray 
+        fn get_camera_ray(uv: vec2f, canvas_width: f32, canvas_height: f32) -> Ray 
         {
             let view_direction: vec3f = normalize(target_point - camera_position);
             let right: vec3f = normalize(cross(view_direction, up));
