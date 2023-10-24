@@ -59,7 +59,7 @@
             normal: vec3f,
         };
         const plane_onb = Onb(vec3f(-1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), vec3f(0.0, 1.0, 0.0));
-        const camera_position =  vec3f(0.15, 1.5, 10.0);
+        const camera_position = vec3f(0.15, 1.5, 10.0);
         const target_point = vec3f(0.15, 1.5, 0.0);
         const up = vec3f(0.0, 1.0, 0.0); 
         const math_pi = 3.14159;
@@ -103,7 +103,7 @@
                     (*hit).position = ray.origin + t * ray.direction;
                     (*hit).normal = plane_normal;
                     (*hit).color = vec3f(0.1, 0.7, 0.0);
-                    (*hit).shader = u32(uniforms.matte);
+                    (*hit).shader = 1;
                     (*hit).use_texture = false;
                     if ((*hit).use_texture) {
                         (*hit).texcoords[0] = dot((*hit).position, plane_onb.tangent) * uniforms.texture_scaling;
@@ -402,7 +402,7 @@
         <canvas id="webgpu-canvas" width="800" height="450">
             Please use a browser that supports HTML5 canvas.
         </canvas>
-        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center;">
+        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center; visibility: hidden;">
             <div style="align-self: center">Lab 2 settings</div>
             <div style="display: flex; flex-direction: column; gap: 10px">
                 <div>
@@ -433,7 +433,7 @@
                 </select>
             </div>
         </div>
-        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center;">
+        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center; visibility: hidden;">
             <div style="align-self: center">Lab 3 settings</div>
             <div>
                 <div>
