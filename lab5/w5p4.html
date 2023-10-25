@@ -100,7 +100,7 @@
             let denom = dot(plane_normal, ray.direction);
             let t = dot(plane_position - ray.origin, plane_normal) / denom;
             if t > 0.1 {
-                if t < (*hit).dist {
+                if t <= (*hit).dist {
                     (*hit).has_hit = true;
                     (*hit).dist = t;
                     (*hit).position = ray.origin + t * ray.direction;
@@ -149,7 +149,7 @@
                     }
                     return true;
                 }  
-                if t2 > 0.1 && t2 < (*hit).dist {
+                if t2 > 0.01 && t2 < (*hit).dist {
                     (*hit).has_hit = true;
                     (*hit).dist = t2;
                     (*hit).position = ray.origin + t2 * ray.direction;
@@ -199,13 +199,13 @@
                 vNormals[face[1]] * barycentric[1] +
                 vNormals[face[2]] * barycentric[2]
             );
-            if t > 0.1 && t < (*hit).dist {
+            if t > 0.01 && t < (*hit).dist {
                 (*hit).has_hit = true;
                 (*hit).dist = t;
                 (*hit).position = position;
                 (*hit).normal = normals;
                 (*hit).color = mColors[mIndex] + mEmissions[mIndex];
-                (*hit).shader = 6;
+                (*hit).shader = 7;
                 (*hit).use_texture = false;
                 return true;
             }

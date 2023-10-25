@@ -191,11 +191,12 @@ async function main() {
         //flatten data
         const colors = [];
         const emissions = [];
-        const light_indices = [];
+        
         console.log(g_drawingInfo.light_indices);
+        console.log(g_drawingInfo.vertices);
         for (const material of g_drawingInfo.materials) {
-            colors.push(material.color.r, material.color.g, material.color.b);
-            emissions.push(material.emission.r, material.emission.g, material.emission.b);
+            colors.push(material.color.r, material.color.g, material.color.b, 1.0);
+            emissions.push(material.emission.r, material.emission.g, material.emission.b, 1.0);
         }
         console.log(g_drawingInfo);
         console.log(g_drawingInfo.materials.map((m) => m.color));

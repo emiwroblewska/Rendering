@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>W5P1</title>
-    <script type="text/javascript" src="w5p1.js"></script>
+    <script type="text/javascript" src="w5p5.js"></script>
     <script type="text/javascript" src="OBJParser.js"></script>
     <script id="wgsl" type="x-shader">
         struct VSOut {
@@ -51,6 +51,11 @@
         @group(1) @binding(1) var my_texture: texture_2d<f32>;
         @group(2) @binding(0) var<storage> vPositions: array<vec3f>;
         @group(2) @binding(1) var<storage> meshFaces: array<vec3u>;
+        @group(2) @binding(2) var<storage> vNormals: array<vec3f>;
+        @group(2) @binding(3) var<storage> mColors: array<vec3f>;
+        @group(2) @binding(4) var<storage> mEmissions: array<vec3f>;
+        @group(2) @binding(5) var<storage> mIndices: array<u32>;
+        @group(2) @binding(6) var<storage> lightIndices: array<u32>;
 
         struct Onb {
             tangent: vec3f,
@@ -58,8 +63,8 @@
             normal: vec3f,
         };
         const plane_onb = Onb(vec3f(-1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), vec3f(0.0, 1.0, 0.0));
-        const camera_position = vec3f(2.0, 1.5, 2.0);
-        const target_point = vec3f(0.0, 0.5, 0.0);
+        const camera_position = vec3f(277.0, 275.0, -570.0);
+        const target_point = vec3f(277.0, 275.0, 0.0);
         const up = vec3f(0.0, 1.0, 0.0); 
         const math_pi = 3.14159;
         
@@ -96,14 +101,14 @@
             let denom = dot(plane_normal, ray.direction);
             let t = dot(plane_position - ray.origin, plane_normal) / denom;
             if t > 0.1 {
-                if t < (*hit).dist {
+                if t <= (*hit).dist {
                     (*hit).has_hit = true;
                     (*hit).dist = t;
                     (*hit).position = ray.origin + t * ray.direction;
                     (*hit).normal = plane_normal;
                     (*hit).color = vec3f(0.1, 0.7, 0.0);
-                    (*hit).shader = u32(uniforms.matte);
-                    (*hit).use_texture = bool(uniforms.use_texture);
+                    (*hit).shader = 1;
+                    (*hit).use_texture = false;
                     if ((*hit).use_texture) {
                         (*hit).texcoords[0] = dot((*hit).position, plane_onb.tangent) * uniforms.texture_scaling;
                         (*hit).texcoords[1] = dot((*hit).position, plane_onb.binormal) * uniforms.texture_scaling;
@@ -145,11 +150,11 @@
                     }
                     return true;
                 }  
-                if t2 > 0.1 && t2 < (*hit).dist {
+                if t2 > 0.01 && t2 < (*hit).dist {
                     (*hit).has_hit = true;
                     (*hit).dist = t2;
                     (*hit).position = ray.origin + t2 * ray.direction;
-                    (*hit).color = vec3f(0.0, 0.0, 0.0); // sphere's color
+                    (*hit).color = vec3f(0.0, 0.0, 0.0);
                     (*hit).shader = u32(uniforms.glass);
                     (*hit).specular = 0.1;
                     (*hit).shininess = 42.0;
@@ -168,8 +173,7 @@
             return false;
         }
 
-        fn intersect_triangle(r: Ray, hit: ptr<function, HitInfo>, faceIndex: u32) -> bool {
-            let face = meshFaces[faceIndex];
+        fn intersect_triangle(r: Ray, hit: ptr<function, HitInfo>, face: vec3u, mIndex: u32) -> bool {
             let edge1 = vPositions[face[1]] - vPositions[face[0]];
             let edge2 = vPositions[face[2]] - vPositions[face[0]];
             let h = cross(r.direction, edge2);
@@ -189,33 +193,65 @@
                 return false;
             }
             let t = f * dot(edge2, q);
-            if t > 0.1 && t < (*hit).dist {
+            let position = r.origin + t * r.direction;
+            let barycentric = calculate_barycentric(position, vPositions[face[0]], vPositions[face[1]], vPositions[face[2]]);
+            let normals = normalize(
+                vNormals[face[0]] * barycentric[0] +
+                vNormals[face[1]] * barycentric[1] +
+                vNormals[face[2]] * barycentric[2]
+            );
+            if t > 0.01 && t < (*hit).dist {
                 (*hit).has_hit = true;
                 (*hit).dist = t;
-                (*hit).position = r.origin + t * r.direction;
-                (*hit).normal = normalize(cross(edge1, edge2));
-                (*hit).color = vec3f(0.4, 0.3, 0.2);
-                (*hit).shader = 1;
+                (*hit).position = position;
+                (*hit).normal = normals;
+                (*hit).color = mColors[mIndex] + mEmissions[mIndex];
+                (*hit).shader = 6;
                 (*hit).use_texture = false;
                 return true;
             }
             return false;
         }
+
+        fn calculate_barycentric(point: vec3f, vertex_a: vec3f, vertex_b: vec3f, vertex_c: vec3f) -> vec3f {
+            let areaABC = 0.5 * abs(
+                (vertex_a[0] * vertex_b[1] - vertex_b[0] * vertex_a[1]) +
+                (vertex_b[0] * vertex_c[1] - vertex_c[0] * vertex_b[1]) +
+                (vertex_c[0] * vertex_a[1] - vertex_a[0] * vertex_c[1])
+            );
+
+            let areaPBC = 0.5 * abs(
+                (vertex_b[0] * vertex_c[1] - vertex_c[0] * vertex_b[1]) +
+                (vertex_c[0] * point[1] - point[0] * vertex_c[1]) +
+                (point[0] * vertex_b[1] - vertex_b[0] * point[1])
+            );
+
+            let areaAPC = 0.5 * abs(
+                (vertex_a[0] * vertex_c[1] - vertex_c[0] * vertex_a[1]) +
+                (vertex_c[0] * point[1] - point[0] * vertex_c[1]) +
+                (point[0] * vertex_a[1] - vertex_a[0] * point[1])
+            );
+
+            let areaABP = 0.5 * abs(
+                (vertex_a[0] * vertex_b[1] - vertex_b[0] * vertex_a[1]) +
+                (vertex_b[0] * point[1] - point[0] * vertex_b[1]) +
+                (point[0] * vertex_a[1] - vertex_a[0] * point[1])
+            );
+            let alpha = areaPBC / areaABC;
+            let beta = areaAPC / areaABC;
+            let gamma = areaABP / areaABC;
+
+            return vec3<f32>(alpha, beta, gamma);
+        }
         
         fn intersect_scene(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool {
-            const plane_position = vec3f(0.0, 0.0, 0.0);
-            const plane_normal = vec3f(0.0, 1.0, 0.0);
-            const sphere_center = vec3f(0.0, 0.5, 0.0);
-            const sphere_radius = 0.3;
-
             (*hit).has_hit = false;
             (*hit).dist = 1e20;
             let ray: Ray = (*r);
 
-            let hit_plane = intersect_plane(ray, plane_position, plane_normal, hit);
-            let hit_sphere = intersect_sphere(ray, sphere_center, sphere_radius, hit);
-            let hit_triangle = intersect_triangle(ray, hit, 0);
-
+            for (var i: u32 = 0 ; i < arrayLength(&meshFaces); i++) {
+                let hit_triangle = intersect_triangle(ray, hit, meshFaces[i], mIndices[i]);
+            }
             return (*hit).has_hit;
         }
 
@@ -232,6 +268,22 @@
             if (intersect_scene(&shadow_ray, &shadow_hit)) {
                 return ambient;
             }
+            return ambient + diffuse;
+        }
+
+        fn lambertian_area(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
+        {
+            let light = sample_area_light((*hit).position);
+            let n_vec = normalize((*hit).normal);
+            let ambient = 0.1 * (*hit).color;
+            let lambertian = ((*hit).color / math_pi) * light.l_i; //* dot(n_vec, light.w_i); NOT WORKING
+            let diffuse = 0.9 * lambertian;
+            
+            // var shadow_ray = Ray((*hit).position, light.w_i, 10e-4, light.dist - 10e-4);
+            // var shadow_hit: HitInfo = (*hit);
+            // if (intersect_scene(&shadow_ray, &shadow_hit)) {
+            //     return ambient;
+            // }
             return ambient + diffuse;
         }
 
@@ -292,7 +344,26 @@
             return phong(ray, hit);
         }
 
-        // =========================== POINT LIGHT =============================
+        // ==================================== LIGHT ========================================
+        fn get_light_position(light_idx: u32) -> vec3f {
+            let face = meshFaces[light_idx];
+            let vertex_a = vPositions[face[0]];
+            let vertex_b = vPositions[face[1]]; 
+            let vertex_c = vPositions[face[2]];
+            let center = (vertex_a + vertex_b + vertex_c) / 3.0;
+            return center;
+        }
+
+        fn get_light_area(light_idx: u32) -> f32 {
+            let face = meshFaces[light_idx];
+            let vertex_a = vPositions[face[0]];
+            let vertex_b = vPositions[face[1]]; 
+            let vertex_c = vPositions[face[2]];
+            let area = 0.5 * length(cross(vertex_b - vertex_a, vertex_c - vertex_a)); 
+            
+            return area;
+        }
+        
         fn sample_point_light(pos: vec3f) -> Light
         {
             let light_position = vec3f(uniforms.light_x, uniforms.light_y, uniforms.light_z);
@@ -305,14 +376,49 @@
             return Light(l_i, light_direction, sqrt(distance_squared));
         }
 
+        fn sample_area_light(pos: vec3f) -> Light
+        {
+            var center = vec3f(0.0); 
+            for (var i: u32 = 0 ; i < arrayLength(&lightIndices); i++) {
+                center += get_light_position(lightIndices[i]);
+            }
+            center /= f32(arrayLength(&lightIndices));
+
+            var intensity = vec3f(0.0);
+            for (var i: u32 = 0 ; i < arrayLength(&lightIndices); i++) {
+                let area = get_light_area(lightIndices[i]);
+                let emission = mEmissions[mIndices[lightIndices[i]]];
+                let face = meshFaces[lightIndices[i]];
+                let normals = normalize(vNormals[face[0]] + vNormals[face[1]] + vNormals[face[2]]);
+                let direction = normalize(center - pos);
+                intensity += (dot(-direction, normals)) * emission * area; // 
+            }
+
+            let light_direction = normalize(center - pos);
+            let distance_squared = pow(length(center - pos), 2);
+            let l_i = vec3f(intensity / distance_squared); // distance_squared
+
+            return Light(l_i, light_direction, sqrt(distance_squared));
+        }
+
+        fn directional_light(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f
+        {
+            let ambient = 0.1 * (*hit).color;
+            let l_r = ((*hit).color / math_pi) * math_pi * dot((*hit).normal, -normalize(vec3f(-1.0)));
+            let diffuse = 0.9 * l_r;
+            return ambient + diffuse;
+        }
+
         fn shade(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
         {
             switch (*hit).shader {
+                case 0 { return directional_light(r, hit); }
                 case 1 { return lambertian(r, hit); }
                 case 2 { return phong(r, hit); }
                 case 3 { return mirror(r, hit); }
                 case 4 { return refractive(r, hit); }
                 case 5 { return glossy(r, hit); }
+                case 6 { return lambertian_area(r, hit); }
                 case default { return (*hit).color; }
             } 
         }
@@ -350,16 +456,17 @@
                 }
             }
             result /= f32(uniforms.subdivs * uniforms.subdivs);
+            // return vec4f(normalize(mColors[2]), 1.0);
             return vec4f(pow(result, vec3f(1.0)), bgcolor.a);
         }
     </script>
 </head>
 <body>
-    <div style="display: flex; gap: 10px">
+    <div style="display: flex; gap: 20px">
         <canvas id="webgpu-canvas" width="512" height="512">
             Please use a browser that supports HTML5 canvas.
         </canvas>
-        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center;">
+        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center; visibility: hidden;">
             <div style="align-self: center">Lab 2 settings</div>
             <div style="display: flex; flex-direction: column; gap: 10px">
                 <div>
@@ -390,7 +497,7 @@
                 </select>
             </div>
         </div>
-        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center;">
+        <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center; visibility: hidden;">
             <div style="align-self: center">Lab 3 settings</div>
             <div>
                 <div>

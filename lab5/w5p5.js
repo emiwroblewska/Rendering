@@ -192,9 +192,11 @@ async function main() {
         const colors = [];
         const emissions = [];
         
+        console.log(g_drawingInfo.light_indices);
+        console.log(g_drawingInfo.vertices);
         for (const material of g_drawingInfo.materials) {
-            colors.push(material.color.r, material.color.g, material.color.b);
-            emissions.push(material.emission.r, material.emission.g, material.emission.b);
+            colors.push(material.color.r, material.color.g, material.color.b, 1.0);
+            emissions.push(material.emission.r, material.emission.g, material.emission.b, 1.0);
         }
         console.log(g_drawingInfo);
         console.log(g_drawingInfo.materials.map((m) => m.color));
@@ -216,6 +218,7 @@ async function main() {
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
         });
         device.queue.writeBuffer(normalsBuffer, 0, g_drawingInfo.normals);
+
         const mColorsBuffer = device.createBuffer({
             size: Float32Array.BYTES_PER_ELEMENT * colors.length,
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
@@ -231,6 +234,11 @@ async function main() {
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
         });
         device.queue.writeBuffer(mIndicesBuffer, 0, g_drawingInfo.mat_indices);
+        const lightIndicesBuffer = device.createBuffer({
+            size: g_drawingInfo.light_indices.byteLength,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
+        });
+        device.queue.writeBuffer(lightIndicesBuffer, 0, g_drawingInfo.light_indices);
         // Create and return bind group
         const bindGroupObj = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(2),
@@ -258,6 +266,10 @@ async function main() {
             {
                 binding: 5,
                 resource: { buffer: mIndicesBuffer },
+            },
+            {
+                binding: 6,
+                resource: { buffer: lightIndicesBuffer },
             },],
         });
         return bindGroupObj;
