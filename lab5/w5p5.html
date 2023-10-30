@@ -21,6 +21,8 @@
             position: vec3f,
             normal: vec3f,
             color: vec3f,
+            diffuse_reflectance: vec3f,
+            emission: vec3f,
             shader: u32, //1 - Lambertian; 2 - Phong; 3 - mirror; 4 - refractive; 5 - glossy; 6 - base color
             ior1_over_ior2: f32,
             specular: f32,
@@ -91,8 +93,7 @@
                 aspect_corrected_uv.y * up_vector +
                 uniforms.cam_const * view_direction
             );
-        
-            let ray = Ray(camera_position, ray_direction, 0.0, 1.0);
+            let ray = Ray(camera_position, ray_direction, 0.0, 1.0e32);
             return ray;
         }
 
@@ -200,12 +201,14 @@
                 vNormals[face[1]] * barycentric[1] +
                 vNormals[face[2]] * barycentric[2]
             );
-            if t > 0.01 && t < (*hit).dist {
+            if t > r.tmin && t < r.tmax {
                 (*hit).has_hit = true;
                 (*hit).dist = t;
                 (*hit).position = position;
                 (*hit).normal = normals;
                 (*hit).color = mColors[mIndex] + mEmissions[mIndex];
+                (*hit).diffuse_reflectance = mColors[mIndex];
+                (*hit).emission = mEmissions[mIndex];
                 (*hit).shader = 6;
                 (*hit).use_texture = false;
                 return true;
@@ -214,43 +217,27 @@
         }
 
         fn calculate_barycentric(point: vec3f, vertex_a: vec3f, vertex_b: vec3f, vertex_c: vec3f) -> vec3f {
-            let areaABC = 0.5 * abs(
-                (vertex_a[0] * vertex_b[1] - vertex_b[0] * vertex_a[1]) +
-                (vertex_b[0] * vertex_c[1] - vertex_c[0] * vertex_b[1]) +
-                (vertex_c[0] * vertex_a[1] - vertex_a[0] * vertex_c[1])
-            );
+            let v0 = vertex_b - vertex_a;
+            let v1 = vertex_c - vertex_a;
+            let v2 = point - vertex_a;
+            let d00 = dot(v0, v0);
+            let d01 = dot(v0, v1);
+            let d11 = dot(v1, v1);
+            let d20 = dot(v2, v0);
+            let d21 = dot(v2, v1);
+            let denom = d00 * d11 - d01 * d01;
+            let alpha = (d11 * d20 - d01 * d21) / denom;
+            let beta = (d00 * d21 - d01 * d20) / denom;
+            let gamma = 1.0f - alpha - beta;
 
-            let areaPBC = 0.5 * abs(
-                (vertex_b[0] * vertex_c[1] - vertex_c[0] * vertex_b[1]) +
-                (vertex_c[0] * point[1] - point[0] * vertex_c[1]) +
-                (point[0] * vertex_b[1] - vertex_b[0] * point[1])
-            );
-
-            let areaAPC = 0.5 * abs(
-                (vertex_a[0] * vertex_c[1] - vertex_c[0] * vertex_a[1]) +
-                (vertex_c[0] * point[1] - point[0] * vertex_c[1]) +
-                (point[0] * vertex_a[1] - vertex_a[0] * point[1])
-            );
-
-            let areaABP = 0.5 * abs(
-                (vertex_a[0] * vertex_b[1] - vertex_b[0] * vertex_a[1]) +
-                (vertex_b[0] * point[1] - point[0] * vertex_b[1]) +
-                (point[0] * vertex_a[1] - vertex_a[0] * point[1])
-            );
-            let alpha = areaPBC / areaABC;
-            let beta = areaAPC / areaABC;
-            let gamma = areaABP / areaABC;
-
-            return vec3<f32>(alpha, beta, gamma);
+            return vec3f(alpha, beta, gamma);
         }
         
         fn intersect_scene(r: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> bool {
-            (*hit).has_hit = false;
-            (*hit).dist = 1e20;
-            let ray: Ray = (*r);
-
             for (var i: u32 = 0 ; i < arrayLength(&meshFaces); i++) {
-                let hit_triangle = intersect_triangle(ray, hit, meshFaces[i], mIndices[i]);
+                if (intersect_triangle(*r, hit, meshFaces[i], mIndices[i])) {
+                    (*r).tmax = (*hit).dist;
+                }
             }
             return (*hit).has_hit;
         }
@@ -260,7 +247,7 @@
         {
             let light = sample_point_light((*hit).position);
             let ambient = 0.1 * (*hit).color;
-            let lambertian = ((*hit).color / math_pi) * light.l_i * dot((*hit).normal, light.w_i); //
+            let lambertian = ((*hit).color / math_pi) * light.l_i * dot((*hit).normal, light.w_i);
             let diffuse = 0.9 * lambertian;
             
             var shadow_ray = Ray((*hit).position, light.w_i, 10e-4, light.dist - 10e-4);
@@ -275,16 +262,14 @@
         {
             let light = sample_area_light((*hit).position);
             let n_vec = normalize((*hit).normal);
-            let ambient = 0.1 * (*hit).color;
-            let lambertian = ((*hit).color / math_pi) * light.l_i; //* dot(n_vec, light.w_i); NOT WORKING
-            let diffuse = 0.9 * lambertian;
+            let lambertian = ((*hit).diffuse_reflectance / math_pi) * light.l_i * dot(n_vec, light.w_i); //NOT WORKING
             
-            // var shadow_ray = Ray((*hit).position, light.w_i, 10e-4, light.dist - 10e-4);
-            // var shadow_hit: HitInfo = (*hit);
-            // if (intersect_scene(&shadow_ray, &shadow_hit)) {
-            //     return ambient;
-            // }
-            return ambient + diffuse;
+            var shadow_ray = Ray((*hit).position, light.w_i, 10e-4, light.dist - 10e-4);
+            var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0.0, 0.0, 0.0, vec2f(0.0), false);
+            if (intersect_scene(&shadow_ray, &shadow_hit)) {
+                return (*hit).emission;
+            }
+            return lambertian + (*hit).emission;
         }
 
         fn mirror(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
@@ -360,7 +345,6 @@
             let vertex_b = vPositions[face[1]]; 
             let vertex_c = vPositions[face[2]];
             let area = 0.5 * length(cross(vertex_b - vertex_a, vertex_c - vertex_a)); 
-            
             return area;
         }
         
@@ -393,10 +377,9 @@
                 let direction = normalize(center - pos);
                 intensity += (dot(-direction, normals)) * emission * area; // 
             }
-
             let light_direction = normalize(center - pos);
             let distance_squared = pow(length(center - pos), 2);
-            let l_i = vec3f(intensity / distance_squared); // distance_squared
+            let l_i = vec3f(intensity / distance_squared);
 
             return Light(l_i, light_direction, sqrt(distance_squared));
         }
@@ -431,7 +414,7 @@
             let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
             var result = vec3f(0.0);
             var textured = vec3f(0.0);
-            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0.0, 0.0, 0.0, vec2f(0.0), false);
+            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0.0, 0.0, 0.0, vec2f(0.0), false);
 
             for (var i = 0; i < i32(uniforms.subdivs); i++) {
                 for (var j = 0; j < i32(uniforms.subdivs); j++) {
@@ -456,7 +439,6 @@
                 }
             }
             result /= f32(uniforms.subdivs * uniforms.subdivs);
-            // return vec4f(normalize(mColors[2]), 1.0);
             return vec4f(pow(result, vec3f(1.0)), bgcolor.a);
         }
     </script>
