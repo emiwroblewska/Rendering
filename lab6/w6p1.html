@@ -103,7 +103,7 @@
         
             let aspect_corrected_uv: vec2f = uv;
             let ray_direction: vec3f = normalize(
-                aspect_corrected_uv.x * right * aspect_ratio +
+                aspect_corrected_uv.x * right * uniforms.aspect +
                 aspect_corrected_uv.y * up_vector +
                 uniforms.cam_const * view_direction
             );
@@ -116,7 +116,7 @@
             let denom = dot(plane_normal, ray.direction);
             let t = dot(plane_position - ray.origin, plane_normal) / denom;
             if t > 0.01 {
-                if t <= (*hit).dist {
+                if t < (*hit).dist {
                     (*hit).has_hit = true;
                     (*hit).dist = t;
                     (*hit).position = ray.origin + t * ray.direction;
@@ -165,7 +165,7 @@
                     }
                     return true;
                 }  
-                if t2 > 0.01 && t2 < (*hit).dist {
+                if (t2 > 0.1 && t2 < (*hit).dist) {
                     (*hit).has_hit = true;
                     (*hit).dist = t2;
                     (*hit).position = ray.origin + t2 * ray.direction;
@@ -459,11 +459,11 @@
         fn main_fs(@location(0) coords: vec2f) -> @location(0) vec4f
         {
             const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
-            const max_depth = 10;
+            const max_depth = 2;
             let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
             var result = vec3f(0.0);
             var textured = vec3f(0.0);
-            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0.0, 0.0, 0.0, vec2f(0.0), false);
+            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0, 0, 0, vec2f(0.0), false);
 
             for (var i = 0; i < i32(uniforms.subdivs); i++) {
                 for (var j = 0; j < i32(uniforms.subdivs); j++) {
