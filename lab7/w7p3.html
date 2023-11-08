@@ -375,24 +375,30 @@
         {
             let light = sample_area_light((*hit).position, seed);
             let n_vec = normalize((*hit).normal);
-            let e1 = rnd(seed); let e2 = rnd(seed);
-            
-            let theta = 1 / cos(sqrt(1 - e1));
-            let phi = 2 * math_pi * e2;
-            let spherical = spherical_direction(sin(theta), cos(theta), phi);
-            let w_ij = rotate_to_normal(n_vec, spherical);
+            let lambertian = ((*hit).diffuse_reflectance / math_pi) * light.l_i * max(0, dot(n_vec, light.w_i));
 
-            let lambertian = ((*hit).diffuse_reflectance / math_pi) * light.l_i * max(0, dot(n_vec, w_ij));
-
-            var shadow_ray = Ray((*hit).position, w_ij, EPSILON, light.dist - EPSILON);
+            var shadow_ray = Ray((*hit).position, light.w_i, EPSILON, light.dist - EPSILON);
             var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), 
                             0, 0.0, 0.0, 0.0, vec2f(0.0), false, true, vec3f(1.0));
             if (intersect_scene(&shadow_ray, &shadow_hit)) {
                 return (*hit).emission;
             }
+            
+            let e1 = rnd(seed); let e2 = rnd(seed);
+            let theta = acos(sqrt(1 - e1));
+            let phi = 2 * math_pi * e2;
+            let spherical = spherical_direction(sin(theta), cos(theta), phi);
+            let w_ij = rotate_to_normal(n_vec, spherical);
+
+            (*hit).has_hit = false;
+            (*hit).rgb_factor = ((*hit).rgb_factor * (*hit).diffuse_reflectance);
+            (*r).direction = w_ij;
+            (*r).tmin = EPSILON;
+            (*r).tmax = 1e32;
+            (*r).origin = (*hit).position;
+
             if ((*hit).emit) {
                 (*hit).emit = false;
-                (*hit).rgb_factor = ((*hit).rgb_factor * (*hit).diffuse_reflectance);
                 return lambertian + (*hit).emission;
             }
             return lambertian;
@@ -596,7 +602,7 @@
             var tea = tea(launch_idx, u32(uniforms.frame));
             let jitter = vec2f(rnd(&tea), rnd(&tea))/f32(uniforms.height);
 
-            const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
+            const bgcolor = vec4f(0.0, 0.0, 0.0, 1.0);
             const max_depth = 10;
             let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
             var factor = vec3f(1.0);
@@ -617,8 +623,7 @@
                     for (var k = 0; k < max_depth; k++) {
                         if (intersect_scene(&r, &hit)) {
                             if(hit.use_texture) { textured += shade(&r, &hit, &tea); }
-                            result += shade(&r, &hit, &tea);
-                            result *= factor;
+                            result += shade(&r, &hit, &tea) * factor;
                             factor = hit.rgb_factor;
                         }
                         else { result += bgcolor.rgb; break; }
