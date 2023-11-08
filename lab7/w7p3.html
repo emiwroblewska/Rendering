@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>W7P2</title>
-    <script type="text/javascript" src="w7p2.js"></script>
+    <script type="text/javascript" src="w7p3.js"></script>
     <script type="text/javascript" src="../helpers/OBJParser_interleaved.js"></script>
     <script type="text/javascript" src="../helpers/BspTree_interleaved.js"></script>
     <script type="text/javascript" src="../helpers/Aabb.js"></script>
@@ -36,6 +36,8 @@
             shininess: f32,
             texcoords: vec2f,
             use_texture: bool,
+            emit: bool,
+            rgb_factor: vec3f,
         };
         struct Light {
             l_i: vec3f,
@@ -373,14 +375,27 @@
         {
             let light = sample_area_light((*hit).position, seed);
             let n_vec = normalize((*hit).normal);
-            let lambertian = ((*hit).diffuse_reflectance / math_pi) * light.l_i * max(0, dot(n_vec, light.w_i));
+            let e1 = rnd(seed); let e2 = rnd(seed);
+            
+            let theta = 1 / cos(sqrt(1 - e1));
+            let phi = 2 * math_pi * e2;
+            let spherical = spherical_direction(sin(theta), cos(theta), phi);
+            let w_ij = rotate_to_normal(n_vec, spherical);
 
-            var shadow_ray = Ray((*hit).position, light.w_i, EPSILON, light.dist - EPSILON);
-            var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0.0, 0.0, 0.0, vec2f(0.0), false);
+            let lambertian = ((*hit).diffuse_reflectance / math_pi) * light.l_i * max(0, dot(n_vec, w_ij));
+
+            var shadow_ray = Ray((*hit).position, w_ij, EPSILON, light.dist - EPSILON);
+            var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), 
+                            0, 0.0, 0.0, 0.0, vec2f(0.0), false, true, vec3f(1.0));
             if (intersect_scene(&shadow_ray, &shadow_hit)) {
                 return (*hit).emission;
             }
-            return lambertian + (*hit).emission;
+            if ((*hit).emit) {
+                (*hit).emit = false;
+                (*hit).rgb_factor = ((*hit).rgb_factor * (*hit).diffuse_reflectance);
+                return lambertian + (*hit).emission;
+            }
+            return lambertian;
         }
 
         fn mirror(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
@@ -394,6 +409,7 @@
             (*ray).tmax = 1e32;
             (*ray).origin = (*hit).position;
             (*hit).has_hit = false;
+            (*hit).emit = true;
 
             return vec3f(0.0, 0.0, 0.0);
         }
@@ -413,6 +429,7 @@
             (*ray).tmax = 1e32;
             (*ray).origin = (*hit).position;
             (*hit).has_hit = false;
+            (*hit).emit = true;
             return vec3f(0.0, 0.0, 0.0);
         }
 
@@ -444,7 +461,24 @@
             return phong(ray, hit);
         }
 
-        // ==================================== LIGHT ========================================    
+        // ==================================== LIGHT ========================================
+        fn rotate_to_normal(normal: vec3f, v: vec3f) -> vec3f
+        {
+            let signbit = sign(normal.z + 1.0e-16f);
+            let a = -1.0f/(1.0f + abs(normal.z));
+            let b = normal.x*normal.y*a;
+            return vec3f(1.0f + normal.x*normal.x*a, b, -signbit*normal.x)*v.x
+                + vec3f(signbit*b, signbit*(1.0f + normal.y*normal.y*a), -normal.y)*v.y
+                + normal*v.z;
+        }
+
+        fn spherical_direction(sin_theta: f32, cos_theta: f32, phi: f32) -> vec3f
+        {
+            let sin_phi = sin(phi);
+            let cos_phi = cos(phi);
+            return vec3f(sin_theta*cos_phi, sin_theta*sin_phi, cos_theta);
+        }
+
         fn get_light_position(light_idx: u32, use_random: bool, seed: ptr<function, u32>) -> vec3f {
             let face = indices[light_idx];
             let vertex_a = attribs[face[0]].position;
@@ -565,9 +599,11 @@
             const bgcolor = vec4f(0.1, 0.3, 0.6, 1.0);
             const max_depth = 10;
             let uv = vec2f(coords.x*uniforms.aspect*0.5f, coords.y*0.5f);
+            var factor = vec3f(1.0);
             var result = vec3f(0.0);
             var textured = vec3f(0.0);
-            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0.0, 0.0, 0.0, vec2f(0.0), false);
+            var hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), 0, 0.0, 0.0, 0.0, 
+                        vec2f(0.0), false, true, vec3f(1.0));
 
             for (var i = 0; i < i32(uniforms.subdivs); i++) {
                 for (var j = 0; j < i32(uniforms.subdivs); j++) {
@@ -582,6 +618,8 @@
                         if (intersect_scene(&r, &hit)) {
                             if(hit.use_texture) { textured += shade(&r, &hit, &tea); }
                             result += shade(&r, &hit, &tea);
+                            result *= factor;
+                            factor = hit.rgb_factor;
                         }
                         else { result += bgcolor.rgb; break; }
                         if (hit.has_hit) { break; }
