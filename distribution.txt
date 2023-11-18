@@ -31,8 +31,28 @@ Worksheet 4:
 - Part 9
 
 Worksheet 5:
-- (1)
+- (1) (Bartek)
+- (2) (Bartek)
+- (3) (Bartek)
+- (4) Cornell box flat shading (Emi)
+- (5) Cornell box shading with radiometric (Emi)
+
+Worksheet 6:
+- (1) BSP tree (Bartek)
+- (2) BSP tree interleaved (Bartek)
+- (3) Cornell box with spheres (Emi)
+
+Worksheet 7:
+- (1) (Bartek)
+- (2) (Emi)
+- (3) (Emi)
+
+Worksheet 8:
+- (1) (Bartek)
+- (2) (Emi)
+- (3) -
+
+Worksheet 10:
+- (1) 
 - (2)
 - (3)
-- (4)
-- (5)

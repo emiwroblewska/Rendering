@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>W7P2</title>
-    <script type="text/javascript" src="w7p3.js"></script>
+    <title>W8P2</title>
+    <script type="text/javascript" src="w8p2.js"></script>
     <script type="text/javascript" src="../helpers/OBJParser_interleaved.js"></script>
     <script type="text/javascript" src="../helpers/BspTree_interleaved.js"></script>
     <script type="text/javascript" src="../helpers/Aabb.js"></script>
@@ -74,14 +74,11 @@
             normal: vec3f,
         };
         @group(0) @binding(0) var<uniform> uniforms : Uniforms;
-        //@group(0) @binding(1) var<storage> jitter: array<vec2f>;
-        //@group(1) @binding(0) var my_sampler: sampler;
+
         @group(1) @binding(0) var renderTexture: texture_2d<f32>;
 
         @group(2) @binding(0) var<storage> attribs: array<attributes>;
-        // @group(2) @binding(1) var<storage> meshFaces: array<vec3u>;
         @group(2) @binding(1) var<storage> mColors: array<colors>;
-        // @group(2) @binding(4) var<storage> mEmissions: array<vec3f>;
         @group(2) @binding(2) var<storage> indices: array<vec4u>;
         @group(2) @binding(3) var<storage> treeIds: array<u32>;
         @group(2) @binding(4) var<storage> bspTree: array<vec4u>;
@@ -311,7 +308,7 @@
                     var found = false;
                     for(var j = 0u; j < node_count; j++) {
                         let obj_idx = treeIds[node_id + j];
-                        if(intersect_triangle(*r, hit, obj_idx)) {
+                        if(intersect_triangle(*r, hit, obj_idx) || intersect_sphere(*r, hit, left_sphere_center, left_sphere_radius, 3) || intersect_sphere(*r, hit, right_sphere_center, right_sphere_radius, 7)) {
                             (*r).tmax = (*hit).dist;
                             found = true;
                         }
@@ -380,8 +377,9 @@
             var shadow_ray = Ray((*hit).position, light.w_i, EPSILON, light.dist - EPSILON);
             var shadow_hit = HitInfo(false, 0.0, vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0), 
                             0, 0.0, 0.0, 0.0, vec2f(0.0), false, true, vec3f(1.0));
-            if (intersect_scene(&shadow_ray, &shadow_hit)) {
-                return (*hit).emission;
+            var result = select(vec3(0.0), (*hit).emission, (*hit).emit);
+            if (!intersect_scene(&shadow_ray, &shadow_hit)) {
+                result = result + lambertian;
             }
             
             let e1 = rnd(seed); let e2 = rnd(seed);
@@ -396,12 +394,8 @@
             (*r).tmin = EPSILON;
             (*r).tmax = 1e32;
             (*r).origin = (*hit).position;
-
-            if ((*hit).emit) {
-                (*hit).emit = false;
-                return lambertian + (*hit).emission;
-            }
-            return lambertian;
+            (*hit).emit = false;
+            return result;
         }
 
         fn mirror(ray: ptr<function, Ray>, hit: ptr<function, HitInfo>) -> vec3f 
@@ -467,6 +461,30 @@
             return phong(ray, hit);
         }
 
+        fn transparent(r: ptr<function, Ray>, hit: ptr<function, HitInfo>, seed: ptr<function, u32>) -> vec3f
+        {
+            let w_i = normalize(((*r).origin - (*hit).position));
+            let n_vec = normalize((*hit).normal);
+            let cos_theta = 1 - pow((*hit).ior1_over_ior2, 2) * (1 - pow(dot(w_i, n_vec), 2));
+            let w_r = (*hit).ior1_over_ior2 * (dot(w_i, n_vec) * n_vec - w_i) - n_vec*(sqrt(cos_theta));
+
+            let cos_theta_i = abs(dot(w_i, n_vec));
+            let cos_theta_t = abs(dot(w_r, n_vec));
+            let R = fresnel_R(cos_theta_i, cos_theta_t, (*hit).ior1_over_ior2);
+            let rand = rnd(seed);
+
+            if (rand < R) {
+                return mirror(r, hit);
+            }
+            (*r).direction = w_r;
+            (*r).tmin = EPSILON;
+            (*r).tmax = 1e32;
+            (*r).origin = (*hit).position;
+            (*hit).has_hit = false;
+            (*hit).emit = true;
+            return vec3f(0.0, 0.0, 0.0);
+        }
+
         // ==================================== LIGHT ========================================
         fn rotate_to_normal(normal: vec3f, v: vec3f) -> vec3f
         {
@@ -511,6 +529,13 @@
             let vertex_c = attribs[face[2]].position;
             let area = 0.5 * length(cross(vertex_b - vertex_a, vertex_c - vertex_a));
             return area;
+        }
+
+        fn fresnel_R(cos_i: f32, cos_t: f32, n_ratio: f32) -> f32 {
+            let r_perp = (n_ratio * cos_i - cos_t) / (n_ratio * cos_i + cos_t);
+            let r_para = (cos_i - n_ratio * cos_t)/(cos_i + n_ratio * cos_t);
+            let R = 0.5 * (r_perp*r_perp + r_para*r_para);
+            return R;
         }
         
         fn sample_point_light(pos: vec3f) -> Light
@@ -563,6 +588,7 @@
                 case 4 { return refractive(r, hit); }
                 case 5 { return glossy(r, hit); }
                 case 6 { return lambertian_area(r, hit, seed); } 
+                case 7 { return transparent(r, hit, seed); }
                 case default { return (*hit).color; }
             } 
         }
